@@ -50,6 +50,17 @@ public:
         }
         return vec;
     }
+    mat_vector clone()
+    {
+        mat_vector vec;
+        for(int i = 0;i<this->size();i++)
+        {
+            cv::Mat tmp;
+            tmp = this->operator[](i).clone();
+            vec.push_back(tmp);
+        }
+        return vec;
+    }
     int width = 0, height = 0, dtype=0;
 };
 #endif //DEPTHINPAINTER_MAT_VECTOR_H

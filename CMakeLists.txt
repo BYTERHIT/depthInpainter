@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.19)
 project(depthInpainter)
-
+set(CMAKE_TOOLCHAIN_FILE D:/lwj/data/vcpkg/scripts/buildsystems/vcpkg.cmake)
 set(CMAKE_CXX_STANDARD 14)
 find_package(OpenCV REQUIRED)
 if (NOT OpenCV_FOUND)
@@ -9,5 +9,5 @@ endif (NOT OpenCV_FOUND)
 include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(depthInpainter main.cpp
         tgvOperator.cpp
-        mat_vector.h SLIC.cpp SLIC.h)
+        mat_vector.h SLIC.cpp SLIC.h GDBSCAN.cpp GDBSCAN.h)
 target_link_libraries(depthInpainter ${OpenCV_LIBS} )

@@ -124,31 +124,25 @@ mat_vector second_order_divergence(mat_vector second_order_derivative){
     return vec;
 }
 //D*dU
-//grad normerlized grad [dy*dy,-dx*dy;-dy*dx,dx*dx]
+//grad normerlized grad [dy*dy,-dx*dy,-dy*dx,dx*dx]
 //edgePos pos = y*width + x;
-mat_vector D_OPERATOR(vector<int> edgePosVec, mat_vector gradMtx, mat_vector du)
+mat_vector D_OPERATOR(vector<EDGE_GRAD> edgeGrad, mat_vector du)
 {
-    Mat iDy2 = gradMtx[0];
-    Mat iDyDx = gradMtx[1];
-    Mat iDx2 = gradMtx[2];
     Mat uDx = du[0];
     Mat uDy = du[1];
     mat_vector vec;
     Mat dx = du[0].clone();
     Mat dy = du[1].clone();
-    double* iDx2Ptr = (double*)iDx2.data;
-    double* iDy2Ptr = (double*)iDy2.data;
-    double* iDyDxPtr = (double*)iDyDx.data;
     double* uDxPtr = (double*)uDx.data;
     double* uDyPtr = (double*)uDy.data;
     double* xPtr = (double*)dx.data;
     double* yPtr = (double*)dy.data;
-    for(auto iter = edgePosVec.begin();iter!=edgePosVec.end();iter++)
+    for(auto iter = edgeGrad.begin();iter!=edgeGrad.end();iter++)
     {
-        int pos = *iter;
-        double iDx2AtPos = *(iDx2Ptr+pos);
-        double iDy2AtPos = *(iDy2Ptr+pos);
-        double iDxDyAtPos = *(iDyDxPtr+pos);
+        int pos = iter->idx;
+        double iDx2AtPos = iter->tGradProjMtx[1][1];
+        double iDy2AtPos = iter->tGradProjMtx[0][0];
+        double iDxDyAtPos = iter->tGradProjMtx[0][1];
         double uDxAtPos = *(uDxPtr+pos);
         double uDyAtPos = *(uDyPtr+pos);
         *(xPtr + pos) = uDxAtPos*iDy2AtPos + uDyAtPos * iDxDyAtPos;
@@ -178,6 +172,7 @@ mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha)
        {
            if(*ptr < alpha)
                *ptr = 1.;
+           ptr++;
        }
        divide(xx,sum,xx);
        divide(xy,sum,xy);
@@ -200,6 +195,7 @@ mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha)
        {
            if(*ptr < alpha)
                *ptr = 1.;
+           ptr++;
        }
        divide(x,sum,x);
        divide(y,sum,y);
@@ -211,18 +207,31 @@ mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha)
 //(I+to*dG)^-1
 Mat G_OPERATOR(Mat g, Mat uBar,double to, double lambda)
 {
-    Mat u = uBar + to*lambda*g;
-    u/=(1.+to*lambda);
+    Mat u = uBar.clone();
+    double *uPtr = (double*)u.data;
+    double *uBarPtr = (double*)uBar.data;
+    double *gPtr = (double*)g.data;
+    for(int i = 0;i < uBar.rows*uBar.cols;i++)
+    {
+        //lamba=0,when g==0
+        if(*gPtr)
+            *uPtr = (*uBarPtr + to * lambda * (*gPtr))/(1. + to*lambda);
+        else
+            *uPtr = (*uBarPtr + to * lambda * (*gPtr));
+        uPtr++;
+        uBarPtr++;
+        gPtr++;
+    }
     return u;
 }
-Mat tgv_alg2(Mat rgb,Mat depth)
-{
-    vector<int> edgePos;//y*width + x;
-    mat_vector imgGradMtx;//dydy, -dxdy; -dydx, dxdx;
-    //todo add superpixel code
 
-    double L = 8.0,alpha0=1.,alpha1=1.;
-    double to_u=1./L, lambda = 16., gama = 0.7*lambda, sigma_p = 1./L/L/to_u,theta_u=1/sqrt(1+2*gama*to_u),sigma_q = sigma_p;
+Mat tgv_alg3(vector<EDGE_GRAD> edgeGrad,Mat depth)
+{
+    double L = 24.0,alpha0=0.05,alpha1=0.05;
+    double to_u=1./L, lambda = 10., gama = lambda,
+    delta = alpha0, mu = 2* sqrt(gama*delta)/L,
+    tau_n = mu / (2 * gama), sigma_n = mu / (2*delta), theta_n = 1 / (1 + mu),
+    sigma_p = 1./L/L/to_u,theta_u=1/sqrt(1+2*gama*to_u),sigma_q = sigma_p;
     double to_w = to_u, theta_w = theta_u;
     int loopTimes = 1000;
     mat_vector w,p,q,wBar;
@@ -254,15 +263,87 @@ Mat tgv_alg2(Mat rgb,Mat depth)
     for(int i = 0; i<loopTimes; i++)
     {
         mat_vector du = derivativeForward(uBar) - wBar;
-        du = D_OPERATOR(edgePos, imgGradMtx, du);
+        du = D_OPERATOR(edgeGrad, du);
+        p = p+du*sigma_n;
+        p= F_STAR_OPERATOR(p,1.);
+        Mat u_old = u.clone();
+        mat_vector w_old = w.clone();
+
+        q = q + symmetrizedSecondDerivative(wBar)*sigma_n;
+        q = F_STAR_OPERATOR(q,1.);
+
+        mat_vector dp = D_OPERATOR(edgeGrad,p);
+        Mat uDelta = divergence(dp) * tau_n;
+        u = u + uDelta;
+        u = G_OPERATOR(u0,u,tau_n,lambda);
+
+        theta_n = 1 / sqrt( 1 + 2 * gama * tau_n);
+        tau_n = theta_n * tau_n;
+        sigma_n = sigma_n / theta_n;
+
+        w = second_order_divergence(q) + p;
+        w = w + w * tau_n;
+
+        uBar = u + (u-u_old)*theta_n;
+        wBar = w + (w-w_old)*theta_n;
+        namedWindow("depthInpaint");
+        Mat uGray = u * 256.;
+        uGray.convertTo(uGray,CV_8UC1);
+        imshow("depthInpaint",uGray);
+        waitKey(10);
+        cout<<"iter:"<<i<<endl;
+    }
+    return u;
+}
+
+Mat tgv_alg2(vector<EDGE_GRAD> edgeGrad,Mat depth)
+{
+    double L = 8.0,alpha0=1.,alpha1=1.;
+    double to_u=1./L, lambda = 16., gama = lambda, sigma_p = 1./L/L/to_u,theta_u=1/sqrt(1+2*gama*to_u),sigma_q = sigma_p;
+    double to_w = to_u, theta_w = theta_u;
+    int loopTimes = 1000;
+    mat_vector w,p,q,wBar;
+    Mat u0 = depth.clone();
+    Mat u,uBar;
+    Mat w1 = Mat::zeros(depth.rows,depth.cols, depth.type());
+    Mat w2 = w1.clone();
+    u = w1.clone();
+    uBar = w1.clone();
+    Mat wBar1= w1.clone();
+    Mat wBar2 = w1.clone();
+    wBar.addItem(wBar1);
+    wBar.addItem(wBar2);
+    w.addItem(w1);
+    w.addItem(w2);
+    Mat dx = w1.clone();
+    Mat dy = w1.clone();
+    p.addItem(dx);
+    p.addItem(dy);
+    Mat dxx = w1.clone();
+    Mat dxy = w1.clone();
+    Mat dyx = w1.clone();
+    Mat dyy = w1.clone();
+    q.addItem(dxx);
+    q.addItem(dxy);
+    q.addItem(dyx);
+    q.addItem(dyy);
+
+    for(int i = 0; i<loopTimes; i++)
+    {
+        mat_vector du = derivativeForward(uBar) - wBar;
+        du = D_OPERATOR(edgeGrad, du);
         p = p+du*sigma_p;
         p= F_STAR_OPERATOR(p,alpha1);
+
+        Mat u_old = u.clone();
+        mat_vector w_old = w.clone();
 
         q = q + symmetrizedSecondDerivative(wBar)*sigma_q;
         q = F_STAR_OPERATOR(q,alpha0);
 
-        mat_vector dp = D_OPERATOR(edgePos,imgGradMtx,p);
-        u = u + divergence(dp)*to_u;
+        mat_vector dp = D_OPERATOR(edgeGrad,p);
+        Mat uDelta = divergence(dp) * to_u;
+        u = u + uDelta;
         u = G_OPERATOR(u0,u,to_u,lambda);
 
         w = second_order_divergence(q) + p;
@@ -276,8 +357,16 @@ Mat tgv_alg2(Mat rgb,Mat depth)
         to_w = theta_w* to_w;
         sigma_q = sigma_q / theta_w;
 
-        uBar = u + (u-uBar)*theta_u;
-        wBar = w + (w-wBar)*theta_w;
+//        uBar = u + (u-uBar)*theta_u;
+//        wBar = w + (w-wBar)*theta_w;
+        uBar = u + (u-u_old)*theta_u;
+        wBar = w + (w-w_old)*theta_w;
+        namedWindow("depthInpaint");
+        Mat uGray = u * 256.;
+        uGray.convertTo(uGray,CV_8UC1);
+        imshow("depthInpaint",uGray);
+        waitKey(10);
+        cout<<"iter:"<<i<<endl;
     }
     return u;
 }

@@ -10,6 +10,7 @@
 #include <string.h>
 #include <map>
 #include <opencv2/opencv.hpp>
+#include "GDBSCAN.h"
 using namespace std;
 using namespace cv;
 
@@ -316,7 +317,6 @@ void SLIC::DrawSuperPixel(Mat img) {
 
 //强制连续性
 void SLIC::EnforceConnectivity(vector<vector<labColor>>& img) {
-
     int rows = img.size();
     int cols = img[0].size();
 
@@ -324,6 +324,7 @@ void SLIC::EnforceConnectivity(vector<vector<labColor>>& img) {
 
     int threshold = rows * cols / centers.size();
     vector<vector<int>> newcluster;
+    _clusterResult = Mat::zeros(rows,cols,CV_16UC1);
 
     for (int i = 0; i < rows; i++) {
         vector<int> newrows;
@@ -337,6 +338,8 @@ void SLIC::EnforceConnectivity(vector<vector<labColor>>& img) {
         for (int j = 0; j < cols; j++) {
             if (newcluster[i][j] == -1) {
                 newcluster[i][j] = label;
+                _clusterResult.at<uint16_t>(i,j) = label;
+
                 //BFS
                 queue<pair<int, int>> q;   //BFS队列
                 vector<pair<int, int>> connectiveregion;   //连通区域
@@ -368,6 +371,7 @@ void SLIC::EnforceConnectivity(vector<vector<labColor>>& img) {
                             q.push(pair<int, int>(y, x));
                             connectiveregion.push_back(pair<int, int>(y, x));
                             newcluster[y][x] = label;
+                            _clusterResult.at<uint16_t>(y,x) = label;
                         }
                     }
                 }
@@ -378,6 +382,7 @@ void SLIC::EnforceConnectivity(vector<vector<labColor>>& img) {
                 if (numclusterpixel <= threshold / 2) {
                     for (int k = 0; k < connectiveregion.size(); k++) {
                         newcluster[connectiveregion[k].first][connectiveregion[k].second] = adjlabel;
+                        _clusterResult.at<uint16_t>(connectiveregion[k].first,connectiveregion[k].second) = label;
                     }
                     //cout << adjlabel << endl;
                     label--;
@@ -417,7 +422,10 @@ void SLIC::UpdateCenters(Mat img) {
                     SuperPixels[k].r += img.at<cv::Vec3b>(i, j)[2];
                     SuperPixels[k].x += j;
                     SuperPixels[k].y += i;
+                    SuperPixels[k].d += _depth.at<double>(i,j);
+                    SuperPixels[k].dcnt += (_depth.at<double>(i,j) > 0);
                     SuperPixels[k].cnt++;
+                    SuperPixels[k].pts.push_back(Point(j,i));
                     isFind = true;
                     break;
                 }
@@ -427,10 +435,13 @@ void SLIC::UpdateCenters(Mat img) {
                 temp.b = img.at<cv::Vec3b>(i, j)[0];
                 temp.g = img.at<cv::Vec3b>(i, j)[1];
                 temp.r = img.at<cv::Vec3b>(i, j)[2];
+                temp.d = _depth.at<double>(i,j);
+                temp.dcnt = (_depth.at<double>(i,j) > 0);
                 temp.x = j;
                 temp.y = i;
                 temp.cnt = 1;
                 temp.label = cluster[i][j];
+                temp.pts.push_back(Point(j,i));
                 SuperPixels.push_back(temp);
             }
         }
@@ -440,6 +451,9 @@ void SLIC::UpdateCenters(Mat img) {
         SuperPixels[i].r /= SuperPixels[i].cnt;
         SuperPixels[i].g /= SuperPixels[i].cnt;
         SuperPixels[i].b /= SuperPixels[i].cnt;
+        SuperPixels[i].d /= (SuperPixels[i].dcnt+FLT_EPSILON);
+        SuperPixels[i].x /= SuperPixels[i].cnt;
+        SuperPixels[i].y /= SuperPixels[i].cnt;
     }
     sort(SuperPixels.begin(), SuperPixels.end(), cmp);
 }
@@ -456,13 +470,14 @@ void SLIC::ReplacePixelColour(Mat img) {
 }
 
 
-SLIC::SLIC(cv::Mat src, int slics){
-
-
+SLIC::SLIC(cv::Mat src, Mat dep, int slics ){
+    _srcImg = src.clone();
+    nsp = slics;
     int N = src.cols * src.rows;
     S = (int)sqrt(N / nsp);
     //cout << "S=" << S << endl;
     Mat intense;
+    _depth = dep.clone();
     cvtColor(src,intense,COLOR_BGR2GRAY);
 
     Mat grad = Mat::zeros(intense.size(), intense.type());
@@ -501,15 +516,66 @@ SLIC::SLIC(cv::Mat src, int slics){
     for (int i = 0; i < 1; i++) {
         EnforceConnectivity(cielab);
     }
+    //Mat convas = _srcImg.clone();
+    //DrawSuperPixel(convas);
 
-    DrawSuperPixel(src);
-
-    imwrite("SuperPixels.jpg", src);
+    //imwrite("SuperPixels.jpg", convas);
 
 
     Mat src2= src.clone();
     UpdateCenters(src2);
-    ReplacePixelColour(src2);
-    imwrite("SuperPixelSegment.jpg", src2);
+//    ReplacePixelColour(src2);
+//    imwrite("SuperPixelSegment.jpg", src2);
 }
-//TODO 增加读取sp的接口
+void SLIC::GreedAggregateSPWithDelpth()
+{
+    GDBSCAN * greedAggresor = new GDBSCAN(SuperPixels, _clusterResult, 0.2, 650.25, pow(m/S/2,2));
+    greedAggresor->CLUSTER();
+    vector<SUPER_PIXEL> sps =greedAggresor->GetSps();
+//    _segResult = Mat::zeros(cluster.size(),cluster[0].size(),CV_8UC1);
+    _segResult = greedAggresor->GetSpMap();
+
+
+//    for (int i = 0; i < cluster.size(); i++) {
+//        for (int j = 0; j < cluster[i].size(); j++) {
+//            bool isFind = false;
+//            for (int k = 0; k < sps.size(); k++) {
+//                if (sps[k].sp.label == cluster[i][j]) {
+//                    _segResult.at<uchar>(i,j) = sps[k].refinedLabel;
+//                    break;
+//                }
+//            }
+//        }
+//    }
+    //Mat canvas = _srcImg;
+    //DrawSuperPixelUsingMat(canvas);
+    //imwrite("SuperPixelsAddDepth.jpg", canvas);
+
+}
+
+Mat SLIC::GetSpMap()
+{
+    return _segResult.clone();
+}
+
+void SLIC::DrawSuperPixelUsingMat(Mat img) {
+    for (int i = 0; i < img.rows; i++) {
+        for (int j = 0; j < img.cols; j++) {
+            bool isEdge = false;
+            for (int k = 0; k < 4; k++) {
+                int y = i + step4nbr[k][0];
+                int x = j + step4nbr[k][1];
+                if (y >= 0 && y < img.rows && x >= 0 && x < img.cols
+                    && _segResult.at<uchar>(i,j) != _segResult.at<uchar>(y,x)) {
+                    isEdge = true;
+                    break;
+                }
+            }
+            if (isEdge) {
+                Point p(j, i);
+                circle(img, p, 0, Scalar(0, 0, 0), -1);
+            }
+        }
+    }
+}
+
