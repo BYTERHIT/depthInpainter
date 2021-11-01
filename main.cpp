@@ -55,6 +55,12 @@ int main() {
     SLIC* spMaker = new SLIC(img, depth, 256);
     spMaker->GreedAggregateSPWithDelpth();
     vector<EDGE_GRAD> edgeGradV =  GetSpEdge(spMaker->GetSpMap(), grayImg);
-    Mat depInpaint = tgv_alg3(edgeGradV,depth);
+//    Mat img = imread("D:/lwj/projects/depthInpainter/data/image.png",IMREAD_UNCHANGED);
+//    img.convertTo(img,CV_64FC1);
+//    img = img / 255. - 0.5;
+//    Mat depInpaint = tgv_alg1({},img,0.03,1000,0.05,12);
+//    Mat depInpaint = tgv_alg1({},depth,0.03,1000,0.05,12);
+    Mat depInpaint = tgv_alg2({},depth);
+    imwrite("result.png",depInpaint);
     return 0;
 }

@@ -11,8 +11,10 @@ typedef struct {
     //grad normerlized grad [dy*dy,-dx*dy,-dy*dx,dx*dx]
     double tGradProjMtx[2][2];//切线方向的投影矩阵
 } EDGE_GRAD;
+//cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth);
 cv::Mat tgv_alg2(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
 cv::Mat tgv_alg3(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
+cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth,double lambda_tv, int n_it, double delta, double L);
 class tgvOperator {
 
 };

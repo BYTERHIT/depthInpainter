@@ -61,6 +61,26 @@ public:
         }
         return vec;
     }
+
+    double norm1()
+    {
+        cv::Mat tmp = cv::Mat::zeros(this->operator[](0).rows,this->operator[](0).cols, this->operator[](0).type());
+        for(auto iter = this->begin(); iter!=this->end();iter++)
+        {
+            tmp += cv::abs(*iter);
+        }
+        return cv::sum(tmp)[0];
+    }
+    double norm2()
+    {
+        cv::Mat tmp = cv::Mat::zeros(this->operator[](0).rows,this->operator[](0).cols, this->operator[](0).type());
+        for(auto iter = this->begin(); iter!=this->end();iter++)
+        {
+            tmp += iter->mul(*iter);
+        }
+        cv::sqrt(tmp,tmp);
+        return cv::sum(tmp)[0];
+    }
     int width = 0, height = 0, dtype=0;
 };
 #endif //DEPTHINPAINTER_MAT_VECTOR_H
