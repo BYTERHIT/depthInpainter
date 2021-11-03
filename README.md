@@ -1,3 +1,3 @@
 # depthInpainter
 Robust_Recovery_of_Heavily_Degraded_Depth_Measurements的复现
-todo 还没有完成
+效果比较依赖边缘的判断。可以使用全局语义分割提升一下效果
