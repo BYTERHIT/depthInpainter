@@ -6,9 +6,15 @@
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include "mat_vector.h"
+#include <Eigen/Core>
+#include <Eigen/SparseCore>
+//#define d_u_w
 
 using namespace cv;
 using namespace std;
+using namespace Eigen;
+
+
 Point2d projL1(Point2d p2d, double alpha = 1.0)
 {
     double norm = abs(p2d.x)+abs(p2d.y);
@@ -166,10 +172,10 @@ mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha)
     Mat sum = Mat::zeros(height,width,pBar[0].type());
     for(auto iter = pBar.begin(); iter !=pBar.end();iter++)
     {
-//        sum += iter->mul(*iter);
-        sum += abs(*iter);
+        sum += iter->mul(*iter);
+        //sum += abs(*iter);
     }
-//    sqrt(sum,sum);
+    sqrt(sum,sum);
     sum /= alpha;
     double *ptr = (double*)sum.data;
     for(int i = 0 ;i <width*height;i++)
@@ -186,6 +192,29 @@ mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha)
         result.addItem(item);
     }
     return result;
+}
+
+Mat G_OPERATOR(Mat g, Mat uBar, Mat to, double lambda, double thresh)
+{
+    Mat u = uBar.clone();
+    double *uPtr = (double*)u.data;
+    double *uBarPtr = (double*)uBar.data;
+    double *gPtr = (double*)g.data;
+    double *toPtr = (double*)to.data;
+    for(int i = 0;i < uBar.rows*uBar.cols;i++)
+    {
+        //lamba=0,when g==0
+        if(*gPtr > thresh)
+            *uPtr = (*uBarPtr + (*toPtr) * lambda * (*gPtr))/(1. + (*toPtr)*lambda);
+        else
+            *uPtr = *uBarPtr;
+        uPtr++;
+        uBarPtr++;
+        gPtr++;
+        toPtr++;
+    }
+    return u;
+
 }
 //(I+to*dG)^-1
 Mat G_OPERATOR(Mat g, Mat uBar,double to, double lambda)
@@ -210,8 +239,12 @@ Mat G_OPERATOR(Mat g, Mat uBar,double to, double lambda)
 
 double GetEnerge(Mat u,Mat g, mat_vector w, vector<EDGE_GRAD> edgeGrad, double lambda = 1., double alpha0 = 1., double alpha1=1.)
 {
+    double minDep = 0, maxDep = 10;
+    minMaxLoc(g,&minDep,&maxDep);
     Mat offset = u - g;
-    Mat fidelityMat = offset.mul(offset);
+    Mat mask;
+    threshold(g,mask,DBL_EPSILON + minDep,1.,THRESH_BINARY);
+    Mat fidelityMat = offset.mul(offset).mul(mask);
     mat_vector div = derivativeForward(u);
     mat_vector divD = D_OPERATOR(edgeGrad,div - w);
     mat_vector dif2 = symmetrizedSecondDerivative(w);
@@ -292,16 +325,461 @@ Mat tgv_alg3(vector<EDGE_GRAD> edgeGrad,Mat depth)
     return u;
 }
 
+Point GetCoor(int idx ,int rows, int cols)
+{
+    int i = idx / cols;
+    int j = idx % rows;
+    return Point(j,i);
+}
+
+/* 对于图像m行n列，前向差分算子[DX;DY]:
+ * |-----------------------------m block----------------------------------------------------------|
+ *  |--n cols--|
+ *  -1  1      |
+ *      .  .   |
+ *        -1  1|
+ *            0|
+ * -------------------------
+ *             |-1  1      |
+ *             |    .  .   |
+ *             |      -1  1|
+ *             |          0|
+ *             -------------
+ *                               *
+ *                                     *
+ *                                           |------------
+ *                                           |-1  1      |
+ *                                           |    .  .   |
+ *                                           |      -1  1|
+ *                                           |          0|
+ * -------------------------                 |------------
+ *  -1         | 1         |
+ *      .      |    .      |
+ *         .   |       .   |
+ *           -1|          1|
+ * ------------------------------------------------------
+ *                   *           *
+ *                         *           *
+ * ------------------------------|------------------------
+ *                               |-1         | 1         |
+ *                               |    .      |    .      |
+ *                               |       .   |       .   |
+ *                               |         -1|          1|
+ *                               -------------------------
+ *                                           | 0         |
+ *                                           |    .      |
+ *                                           |       .   |
+ *                                           |          0|
+ *  对于D_EDGE，D=[A11,A12;A21,A22]
+ * */
+mat_vector GetSteps(vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha = 1.)
+{
+    int size = rows * cols;
+    SparseMatrix<double> firstTwoRowOfBlocks(2*size,3*size);
+    SparseMatrix<double> K(6*size,3*size);
+    SparseMatrix<double> D_edge(2*size,2*size);
+    vector<Triplet<double>> nonZeros;
+    //K:
+    //{alpha_u*D_edge*[dx,      -I,               0;
+    //                 dy,       0,              -I]
+    //                 0,    alpha_w*dx,          0;
+    //                 0,    alpha_w/2*dy,  alpha_w/2*dx;
+    //                 0,    alpha_w/2*dy,  alpha_w/2*dx;
+    //                 0,        0,            alpha_w*dy}
+    for(int j = 0;j<rows;j++){//dx
+        int offset = j*cols;
+        for(int i = 0; i < cols -1;i++)
+        {
+            nonZeros.emplace_back(offset + i, offset + i,-1.);
+            nonZeros.emplace_back( offset + i, offset + i + 1,1.);
+        }
+    }
+    for(int j = 0;j<rows -1;j++){//dy
+        int offset = j*cols;
+        for(int i = 0; i < cols;i++)
+        {
+            nonZeros.emplace_back(offset + size + i, offset + i,-1.);
+            nonZeros.emplace_back( offset + size + i, offset + i + cols,1.);
+        }
+    }
+#ifdef d_u_w
+    for(int j = 0;j<rows;j++){//-I 0;0 -I;
+        int offset = j*cols;
+        for(int i = 0; i < cols;i++)
+        {
+            nonZeros.emplace_back(offset + i, offset + size + i,-1.);
+            nonZeros.emplace_back( offset + i + size, offset + 2*size + i, -1.);
+        }
+    }
+#endif
+    firstTwoRowOfBlocks.setFromTriplets(nonZeros.begin(),nonZeros.end());
+
+    vector<Triplet<double>> nonZerosDedge;
+    if (!edgeGrad.empty())
+    {
+        auto iter = edgeGrad.begin();
+        int idx = iter->idx;
+        for (int j = 0; j < size; j++) {
+            if (j != idx)
+            {
+                nonZerosDedge.emplace_back(j, j, 1.);//xx
+                nonZerosDedge.emplace_back(j + size, j + size, 1.);//yy
+            }
+            else
+            {
+                nonZerosDedge.emplace_back(j, j, iter->tGradProjMtx[0][0]);//xx
+                nonZerosDedge.emplace_back(j, j + size, iter->tGradProjMtx[0][1]);//xy
+                nonZerosDedge.emplace_back(j + size, j, iter->tGradProjMtx[1][0]);//yx
+                nonZerosDedge.emplace_back(j + size, j + size, iter->tGradProjMtx[1][1]);//yy
+                if (iter < edgeGrad.end() - 1)
+                {
+                    iter++;
+                    idx = iter->idx;
+                }
+            }
+        }
+    }
+    else
+    {
+        for (int j = 0; j < size; j++) {
+            nonZerosDedge.emplace_back(j, j, 1.);//xx
+            nonZerosDedge.emplace_back(j + size, j + size, 1.);//yy
+        }
+    }
+    
+    D_edge.setFromTriplets(nonZerosDedge.begin(),nonZerosDedge.end());
+
+    firstTwoRowOfBlocks = alpha_u * D_edge * firstTwoRowOfBlocks;
+    vector<Triplet<double>> nonZerosK;
+    for (int k=0; k<firstTwoRowOfBlocks.outerSize(); ++k) {
+        for (SparseMatrix<double>::InnerIterator it(firstTwoRowOfBlocks, k); it; ++it) {
+            double Kij = it.value(); // 元素值
+            int i = it.row();   // 行标row index
+            int j = it.col();   // 列标（此处等于k）
+            nonZerosK.emplace_back(i,j,Kij);
+        }
+    }
+
+    //delta x
+    for (int j = 0; j < rows; j++) {
+        int offset = j * cols;
+        for (int i = 0; i < cols - 1; i++) {
+            nonZerosK.emplace_back(size*2 + offset + i, size + offset + i, -alpha_w);
+            nonZerosK.emplace_back(size*2 + offset + i, size + offset + i + 1, alpha_w);
+
+            nonZerosK.emplace_back(size*3 + offset + i, size*2 + offset + i  , -0.5 * alpha_w);
+            nonZerosK.emplace_back(size*3 + offset + i, size*2 + offset + i   + 1, 0.5 * alpha_w);
+
+            nonZerosK.emplace_back(size*4 + offset + i, size*2 + offset + i  , -0.5 * alpha_w);
+            nonZerosK.emplace_back(size*4 + offset + i, size*2 + offset + i   + 1, 0.5 * alpha_w);
+        }
+    }
+    //delta y
+    for (int j = 0; j < rows - 1; j++) {
+        int offset = j * cols;
+        for (int i = 0; i < cols; i++) {
+            nonZerosK.emplace_back(offset + i + 3*size, size + offset + i, -0.5 * alpha_w);
+            nonZerosK.emplace_back(offset + i + 3*size, size + offset + i + cols, 0.5 * alpha_w);
+
+            nonZerosK.emplace_back(offset + i + 4*size, size + offset + i, -0.5 * alpha_w);
+            nonZerosK.emplace_back(offset + i + 4*size, size + offset + i + cols, 0.5 * alpha_w);
+
+            nonZerosK.emplace_back(offset + i + 5*size, offset + 2*size + i, -alpha_w);
+            nonZerosK.emplace_back(offset + i + 5*size, offset + 2*size + i + cols, alpha_w);
+        }
+    }
+#ifndef d_u_w
+    for(int j = 0;j<rows;j++){//-I 0;0 -I;
+        int offset = j*cols;
+        for(int i = 0; i < cols;i++)
+        {
+            nonZerosK.emplace_back(offset + i, offset + size + i,-alpha_u);
+            nonZerosK.emplace_back( offset + i + size, offset + 2*size + i, -alpha_u);
+        }
+    }
+#endif
+    K.setFromTriplets(nonZerosK.begin(), nonZerosK.end());
+//    cout << K << endl;
+    //迭代访问稀疏矩阵
+    mat_vector to(3,Mat::zeros(rows,cols,CV_64FC1));
+    mat_vector sigma(6,Mat::zeros(rows,cols,CV_64FC1));
+    for (int k=0; k<K.outerSize(); ++k) {
+        for (SparseMatrix<double>::InnerIterator it(K, k); it; ++it) {
+            double Kij = abs(it.value()); // 元素值
+            int i = it.row();   // 行标row index
+            int j = it.col();   // 列标（此处等于k）
+            int toMatIdx = j / size;
+            int toOffset = j % size;
+            double *toPtr = (double *)to[toMatIdx].data;
+            *(toPtr + toOffset) += pow(Kij,2-alpha);
+            int sigmaMatIdx = i / size;
+            int sigmaOffset = i % size;
+            double *sigmaPtr = (double *)sigma[sigmaMatIdx].data;
+            *(sigmaPtr + sigmaOffset) += pow(Kij,alpha);
+        }
+    }
+    mat_vector params;
+    Mat ones = Mat::ones(rows, cols,CV_64FC1);
+    //Mat xoffset = sigmaX - sigmaX_;
+    //Mat yoffset = sigmaY - sigmaY_;
+    //Mat tooffset = to - to_;
+
+    double delta = DBL_EPSILON;
+    for(int i = 0; i<3;i++)
+    {
+        Mat toTmp;
+        divide(ones,to[i] + delta,toTmp);
+        params.addItem(toTmp);
+    }
+    for(int i = 0; i<6; i++)
+    {
+        Mat tmp;
+        divide(ones,sigma[i] + delta,tmp);
+        params.addItem(tmp);
+    }
+    return params;
+}
+
+mat_vector GetUstepsUsingMat(vector<EDGE_GRAD> edgeGrad, int rows, int cols)
+{
+    //debug code to seee grad
+    Mat A11 = Mat::ones(rows, cols, CV_64FC1),
+        A12 = Mat::zeros(rows, cols, CV_64FC1),
+        A21 = A12.clone(),
+        A22 = A11.clone();
+    double* a11Ptr = (double*)A11.data;
+    double* a12Ptr = (double*)A12.data;
+    double* a21Ptr = (double*)A21.data;
+    double* a22Ptr = (double*)A22.data;
+    for (auto it = edgeGrad.begin(); it != edgeGrad.end(); it++)
+    {
+        *(a11Ptr + it->idx) = it->tGradProjMtx[0][0];
+        *(a12Ptr + it->idx) = it->tGradProjMtx[0][1];
+        *(a21Ptr + it->idx) = it->tGradProjMtx[1][0];
+        *(a22Ptr + it->idx) = it->tGradProjMtx[1][1];
+    }
+    Mat A11Dx, A12Dy, A21Dx, A22Dy;
+    //对m行n列的图像，其差分算子DX，DY是mn行mn列的稀疏矩阵，只有在以下位置(坐标序号为(row,col))有值
+    Mat DXDiag; //对角线元素
+    Mat DYDiag;//对角线
+    Mat DYDiagURN;//(0,n)->(mn-n,mn)
+    Mat DXDiagUR1 = Mat::ones(rows, cols, CV_64FC1);//(0,1)->(mn-1,mn)
+    DYDiag = DXDiagUR1.clone();
+    DYDiagURN = DYDiag.clone();
+    DXDiag = -1 * Mat::ones(rows, cols, CV_64FC1);
+    Rect lastCol = Rect(cols - 1, 0, 1, rows);
+    Rect lastRow = Rect(0, rows - 1, cols, 1);
+    Rect ur1Region = Rect(1, 0, cols - 1, rows);
+    Rect ur1RegionAnchor = Rect(0, 0, cols - 1, rows);
+    Rect urnRegion = Rect(0, 1, cols, rows - 1);
+    Rect urnRegionAnchor = Rect(0, 0, cols, rows - 1);
+    DXDiag(lastCol) *= 0;
+    DXDiagUR1(lastCol) *= 0;
+    DYDiag(lastRow) *= 0;
+    DYDiag *= -1;
+    DYDiagURN(lastRow) *= 0;
+    Mat K11Diag, K11DiagUR1, K11DiagURN, K21Diag, K21DiagURN, K21DiagUR1;
+    K11Diag = A11.mul(DXDiag) + A12.mul(DYDiag);
+    K11DiagUR1 = A11.mul(DXDiagUR1);
+    K11DiagURN = A12.mul(DYDiagURN);
+    K21Diag = A21.mul(DXDiag) + A22.mul(DYDiag);
+    K21DiagUR1 = A21.mul(DXDiagUR1);
+    K21DiagURN = A22.mul(DYDiagURN);
+
+    Mat sigmaX_ = abs(K11Diag) + abs(K11DiagUR1) + abs(K11DiagURN);
+    Mat sigmaY_ = abs(K21Diag) + abs(K21DiagUR1) + abs(K21DiagURN);
+    Mat to_ = abs(K11Diag) + abs(K21Diag);
+    to_(ur1Region) += abs(K11DiagUR1(ur1RegionAnchor)) + abs(K21DiagUR1(ur1RegionAnchor));
+    to_(urnRegion) += abs(K11DiagURN(urnRegionAnchor)) + abs(K21DiagURN(urnRegionAnchor));
+
+    mat_vector params;
+    Mat ones = Mat::ones(rows, cols, CV_64FC1);
+    //Mat xoffset = sigmaX - sigmaX_;
+    //Mat yoffset = sigmaY - sigmaY_;
+    //Mat tooffset = to - to_;
+
+    divide(ones, to_ + DBL_EPSILON, to_);
+    divide(ones, sigmaX_ + DBL_EPSILON, sigmaX_);
+    divide(ones, sigmaY_ + DBL_EPSILON, sigmaY_);
+    params.addItem(to_);
+    params.addItem(sigmaX_);
+    params.addItem(sigmaY_);
+    return params;
+}
+/*
+ * w=[w1;w2],2mn*1;
+ * eps(w) = [dx 0; dy/2 dx/2; dy/2 dx/2; 0 dy]*w
+ */
+mat_vector GetWSteps(int rows, int cols) {
+    int size = rows * cols;
+    SparseMatrix<double> EPSILON(4 * size, 2 * size), K(2 * size, size);
+    vector<Triplet<double>> nonZeros;
+    //delta x
+    for (int j = 0; j < rows; j++) {
+        int offset = j * cols;
+        for (int i = 0; i < cols - 1; i++) {
+            nonZeros.emplace_back(offset + i, offset + i, -1.);
+            nonZeros.emplace_back(offset + i, offset + i + 1, 1.);
+
+            nonZeros.emplace_back(offset + i + size, offset + i + size, -0.5);
+            nonZeros.emplace_back(offset + i + size, offset + i + size + 1, 0.5);
+
+            nonZeros.emplace_back(offset + i + 2*size, offset + i + size, -0.5);
+            nonZeros.emplace_back(offset + i + 2*size, offset + i + size + 1, 0.5);
+        }
+    }
+    //delta y
+    for (int j = 0; j < rows - 1; j++) {
+        int offset = j * cols;
+        for (int i = 0; i < cols; i++) {
+            nonZeros.emplace_back(offset + i + size, offset + i, -0.5);
+            nonZeros.emplace_back(offset + i + size, offset + i + cols, 0.5);
+
+            nonZeros.emplace_back(offset + i + 2*size, offset + i, -0.5);
+            nonZeros.emplace_back(offset + i + 2*size, offset + i + cols, 0.5);
+
+            nonZeros.emplace_back(offset + i + 3*size, offset + size + i, -1);
+            nonZeros.emplace_back(offset + i + 3*size, offset + size + i + cols, 1);
+        }
+    }
+    EPSILON.setFromTriplets(nonZeros.begin(),nonZeros.end());
+//    cout <<"EPSILON:" << EPSILON << endl;
+    cout <<"迭代访问稀疏矩阵的元素 "<<endl;
+    Mat toX = Mat::zeros(rows,cols,CV_64FC1);
+    Mat toY = Mat::zeros(rows,cols,CV_64FC1);
+    Mat sigmaXX = Mat::zeros(rows,cols,CV_64FC1);
+    Mat sigmaXY = Mat::zeros(rows,cols,CV_64FC1);
+    Mat sigmaYX = Mat::zeros(rows,cols,CV_64FC1);
+    Mat sigmaYY = Mat::zeros(rows,cols,CV_64FC1);
+    double *toXPtr = (double*)toX.data;
+    double *toYPtr = (double*)toY.data;
+    double *sigmaXXPtr = (double*)sigmaXX.data;
+    double *sigmaXYPtr = (double*)sigmaXY.data;
+    double *sigmaYXPtr = (double*)sigmaYX.data;
+    double *sigmaYYPtr = (double*)sigmaYY.data;
+    double alpha = 1.;
+    for (int k=0; k< EPSILON.outerSize(); ++k) {
+        for (SparseMatrix<double>::InnerIterator it(EPSILON, k); it; ++it) {
+            double Kij = abs(it.value()); // 元素值
+            int i = it.row();   // 行标row index
+            int j = it.col();   // 列标（此处等于k）
+            if(j>=size)
+                *(toYPtr + j - size) += pow(Kij, 2-alpha);
+            else
+                *(toXPtr + j) += pow(Kij,2-alpha);
+            if(i >= 3*size)
+                *(sigmaYYPtr + i - 3*size) += pow(Kij,alpha);
+            else if(i>=2*size)
+                *(sigmaYXPtr + i - 2*size) += pow(Kij,alpha);
+            else if(i>=size)
+                *(sigmaXYPtr + i - size) += pow(Kij,alpha);
+            else
+                *(sigmaXXPtr + i) += pow(Kij,alpha);
+        }
+    }
+    mat_vector ret;
+    Mat ones = Mat::ones(rows, cols,CV_64FC1);
+    divide(ones,toX + DBL_EPSILON,toX);
+    divide(ones,toY + DBL_EPSILON,toY);
+    divide(ones,sigmaXX + DBL_EPSILON,sigmaXX);
+    divide(ones,sigmaXY + DBL_EPSILON,sigmaXY);
+    divide(ones,sigmaYX + DBL_EPSILON,sigmaYX);
+    divide(ones,sigmaYY + DBL_EPSILON,sigmaYY);
+    ret.addItem(toX);
+    ret.addItem(toY);
+    ret.addItem(sigmaXX);
+    ret.addItem(sigmaXY);
+    ret.addItem(sigmaYX);
+    ret.addItem(sigmaYY);
+    return ret;
+}
+Mat tgv_algPrecondition(vector<EDGE_GRAD> edgeGrad, Mat depth, double lambda_tv = 0.03, int n_it = 1000)
+{
+    double minDep = 0, maxDep = 10;
+    minMaxLoc(depth,&minDep,&maxDep);
+    double scaleDep = 1. / (maxDep - minDep);
+    depth = depth * scaleDep - minDep * scaleDep - 0.5;
+
+    double theta_n = 1 ;
+    double alpha_u = 2., alpha_w = 1.;
+    //初始化步长值 通过precontion算法实现
+    mat_vector steps = GetSteps(edgeGrad,depth.rows, depth.cols,alpha_u,alpha_w,1.);
+    Mat to_u = steps[0];
+    mat_vector to_w(2);
+    copy(steps.begin()+1,steps.begin()+3,to_w.begin());
+    mat_vector sigma_p(2);
+    copy(steps.begin() + 3, steps.begin()+5,sigma_p.begin());
+    mat_vector sigma_q(4);
+    copy(steps.begin()+5,steps.end(),sigma_q.begin());
+
+    double lambda = 1/lambda_tv;
+    int loopTimes = n_it;
+    Mat zeros = Mat::zeros(depth.rows, depth.cols, depth.type());
+    mat_vector w(2,zeros);
+    mat_vector wBar(2,zeros);
+    mat_vector p(2,zeros);
+    mat_vector q(4,zeros);
+    Mat u0 = depth.clone();
+    Mat u, uBar;
+    u =  zeros.clone();
+    uBar = u0.clone();
+    Mat uGray;
+
+    for (int i = 0; i < loopTimes; i++)
+    {
+        mat_vector u_bar_grad = derivativeForward(uBar);
+#ifndef d_u_w
+        p = F_STAR_OPERATOR(p + alpha_u * (D_OPERATOR(edgeGrad,u_bar_grad) - wBar).mul(sigma_p), 1.);
+#else
+        p = F_STAR_OPERATOR(p + alpha_u * D_OPERATOR(edgeGrad,u_bar_grad - wBar).mul(sigma_p), 1.);
+#endif
+
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
+        q = F_STAR_OPERATOR(q + alpha_w * w_bar_second_derivative.mul(sigma_q), 1.);
+
+        Mat u_old = u.clone();
+//        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
+        mat_vector dp = D_OPERATOR(edgeGrad, p);
+        Mat p_div = divergence(dp);
+        u = G_OPERATOR(u0, u + alpha_u * p_div.mul(to_u), to_u, lambda, -0.5);
+        uBar = u + (u - u_old) * theta_n;
+
+        mat_vector w_old = w.clone();
+        mat_vector q_second_div = second_order_divergence(q);
+        //此处和文献不一样p old?
+#ifndef d_u_w
+        w = w + (p*alpha_u + alpha_w * q_second_div).mul(to_w);
+#else
+        w = w + (dp*alpha_u + alpha_w * q_second_div).mul(to_w);
+#endif
+        wBar = w + (w - w_old) * theta_n;
+
+        double energe = GetEnerge(u, u0, w, edgeGrad, lambda, alpha_u, alpha_w);
+        namedWindow("depthInpaint");
+        double scale = 1./scaleDep;
+        uGray = (u+0.5)*scale + minDep;
+//        uGray = (u) * scale + minDep;
+        uGray *=100;
+        uGray.convertTo(uGray, CV_8UC1);
+        imshow("depthInpaint", uGray);
+        waitKey(10);
+        cout << "iter:" << i << " loss: " << energe << endl;
+    }
+    return uGray;
+
+}
+
+
 Mat tgv_alg2(vector<EDGE_GRAD> edgeGrad,Mat depth)
 {
     double minDep = 0, maxDep = 10;
     minMaxLoc(depth,&minDep,&maxDep);
     double scaleDep = 1. / (maxDep - minDep);
-    depth = depth*scaleDep - minDep * scaleDep - 0.5;
+    depth = depth*scaleDep - minDep * scaleDep;// - 0.5;
     double L = 24.0,alpha_u=2.,alpha_w=1.;
     double to_u=1./L, lambda = 16., gama = lambda, sigma_p = 1./L/L/to_u,theta_u=1/sqrt(1+2*gama*to_u),sigma_q = sigma_p;
     double to_w = to_u, theta_w = theta_u;
-    int loopTimes = 1000;
+    int loopTimes = 3000;
     mat_vector w,p,q,wBar;
     Mat u0 = depth.clone();
     Mat u,uBar;
@@ -332,20 +810,29 @@ Mat tgv_alg2(vector<EDGE_GRAD> edgeGrad,Mat depth)
     for(int i = 0; i<loopTimes; i++)
     {
         mat_vector u_bar_grad = derivativeForward(uBar);
-        p= F_STAR_OPERATOR(p + (D_OPERATOR(edgeGrad,u_bar_grad - wBar)) * sigma_p,alpha_u);
+#ifndef d_u_w
+        p = F_STAR_OPERATOR(p + alpha_u * (D_OPERATOR(edgeGrad, u_bar_grad) - wBar)*(sigma_p), 1.);
+#else
+        p = F_STAR_OPERATOR(p + alpha_u * D_OPERATOR(edgeGrad, u_bar_grad - wBar)*(sigma_p), 1.);
+#endif
 
         mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
-        q = F_STAR_OPERATOR(q + w_bar_second_derivative*sigma_q,alpha_w);
+        q = F_STAR_OPERATOR(q + alpha_w * w_bar_second_derivative*sigma_q,1.);
 
         Mat u_old = u.clone();
-        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
-        Mat p_div = divergence(D_OPERATOR(edgeGrad,p));
-        u = G_OPERATOR(u0,u + p_div * to_u,to_u,lambda);
+        mat_vector dp = D_OPERATOR(edgeGrad, p);
+        Mat p_div = divergence(dp);
+        u = G_OPERATOR(u0,u + alpha_u * p_div * to_u,to_u,lambda);
         uBar = u + (u-u_old)*theta_u;
 
         mat_vector w_old = w.clone();
         mat_vector q_second_div = second_order_divergence(q);
-        w = w + (p + q_second_div) * to_w;
+
+#ifndef d_u_w
+        w = w + (p * alpha_u + alpha_w * q_second_div)*(to_w);
+#else
+        w = w + (dp * alpha_u + alpha_w * q_second_div)*(to_w);
+#endif
         wBar = w + (w-w_old)*theta_w;
 
         theta_u = 1/sqrt(1+2*gama*to_u);
@@ -359,7 +846,7 @@ Mat tgv_alg2(vector<EDGE_GRAD> edgeGrad,Mat depth)
         double energe = GetEnerge(u,u0,w,edgeGrad,lambda,alpha_u,alpha_w);
         namedWindow("depthInpaint");
         double scale = 1./scaleDep;
-        uGray = (u+0.5)*scale + minDep;
+        uGray = u*scale + minDep;
         uGray *=50;
         uGray.convertTo(uGray,CV_8UC1);
         imshow("depthInpaint",uGray);

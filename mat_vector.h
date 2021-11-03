@@ -9,6 +9,17 @@ class mat_vector:public std::vector<cv::Mat>{
 //private:
 //    int _size = 0;
 public:
+    mat_vector(int i):std::vector<cv::Mat>(i){
+    }
+
+    mat_vector(int i,cv::Mat element ){
+        for(int j = 0; j <i;j++)
+            this->addItem(element.clone());
+    }
+
+    mat_vector():std::vector<cv::Mat>(){
+    }
+
     void addItem(cv::Mat item){
         this->push_back(item);
         width = item.cols;
@@ -22,7 +33,7 @@ public:
         {
             cv::Mat sum;
             sum = this->operator[](i) +  b[i];
-            vec.push_back(sum);
+            vec.addItem(sum);
         }
         return vec;
     }
@@ -33,7 +44,7 @@ public:
         {
             cv::Mat sum;
             sum = this->operator[](i) -  b[i];
-            vec.push_back(sum);
+            vec.addItem(sum);
         }
         return vec;
     }
@@ -46,10 +57,36 @@ public:
         {
             cv::Mat tmp;
             tmp = this->operator[](i)*b;
-            vec.push_back(tmp);
+            vec.addItem(tmp);
         }
         return vec;
     }
+
+    mat_vector mul(mat_vector b)
+    {
+        assert(this->size() == b.size());
+        mat_vector ret;
+        for(int i = 0;i<this->size();i++)
+        {
+            cv::Mat tmp = this->operator[](i).mul(b[i]);
+            ret.addItem(tmp);
+        }
+        return ret;
+    }
+
+    mat_vector divide(mat_vector b)
+    {
+        assert(this->size() == b.size());
+        mat_vector ret;
+        for(int i = 0;i<this->size();i++)
+        {
+            cv::Mat tmp;
+            cv::divide(this->operator[](i),b[i],tmp);
+            ret.addItem(tmp);
+        }
+        return ret;
+    }
+
     mat_vector clone()
     {
         mat_vector vec;
@@ -57,7 +94,7 @@ public:
         {
             cv::Mat tmp;
             tmp = this->operator[](i).clone();
-            vec.push_back(tmp);
+            vec.addItem(tmp);
         }
         return vec;
     }
@@ -83,4 +120,9 @@ public:
     }
     int width = 0, height = 0, dtype=0;
 };
+
+template<typename T>
+mat_vector operator*(T lem,mat_vector mat){
+    return mat*lem;
+}
 #endif //DEPTHINPAINTER_MAT_VECTOR_H

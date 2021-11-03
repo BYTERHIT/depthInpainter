@@ -547,9 +547,9 @@ void SLIC::GreedAggregateSPWithDelpth()
 //            }
 //        }
 //    }
-    //Mat canvas = _srcImg;
-    //DrawSuperPixelUsingMat(canvas);
-    //imwrite("SuperPixelsAddDepth.jpg", canvas);
+    Mat canvas = _srcImg.clone();
+    DrawSuperPixelUsingMat(canvas);
+    imwrite("SuperPixelsAddDepth.jpg", canvas);
 
 }
 

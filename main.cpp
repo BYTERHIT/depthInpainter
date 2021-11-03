@@ -42,7 +42,7 @@ vector<EDGE_GRAD> GetSpEdge(Mat spMap, Mat grayImg)
 
 
 int main() {
-    string rootDir = "D:/lwj/projects/DFD_QT/autufocus/out/build/x64-Debug/2021_10_18_10_56_14/";
+    string rootDir = "D:/lwj/projects/DFD_QT/autufocus/out/build/x64-Debug/2021_9_18_14_28_8/";
     Mat img = imread(rootDir + "normal.bmp");
     Mat depth = imread(rootDir+"depinpaintpre.png",IMREAD_UNCHANGED);
     depth.convertTo(depth,CV_64FC1);
@@ -60,7 +60,8 @@ int main() {
 //    img = img / 255. - 0.5;
 //    Mat depInpaint = tgv_alg1({},img,0.03,1000,0.05,12);
 //    Mat depInpaint = tgv_alg1({},depth,0.03,1000,0.05,12);
-    Mat depInpaint = tgv_alg2({},depth);
+//    Mat depInpaint = tgv_alg2(edgeGradV,depth);
+    Mat depInpaint = tgv_algPrecondition(edgeGradV, depth, 0.0625, 3000);
     imwrite("result.png",depInpaint);
     return 0;
 }

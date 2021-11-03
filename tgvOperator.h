@@ -13,8 +13,11 @@ typedef struct {
 } EDGE_GRAD;
 //cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth);
 cv::Mat tgv_alg2(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
+
+//deprecate
 cv::Mat tgv_alg3(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
 cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth,double lambda_tv, int n_it, double delta, double L);
+cv::Mat tgv_algPrecondition(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth, double lambda_tv, int n_it);
 class tgvOperator {
 
 };
