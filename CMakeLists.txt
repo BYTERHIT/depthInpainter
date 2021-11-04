@@ -9,5 +9,11 @@ endif (NOT OpenCV_FOUND)
 include_directories(${OpenCV_INCLUDE_DIRS})
 add_executable(depthInpainter main.cpp
         tgvOperator.cpp
-        mat_vector.h SLIC.cpp SLIC.h GDBSCAN.cpp GDBSCAN.h)
+        mat_vector.h
+        SLIC.cpp
+        SLIC.h
+        GDBSCAN.cpp
+        GDBSCAN.h
+        RubustInpainter.cpp
+        tgvAlgrothm.cpp)
 target_link_libraries(depthInpainter ${OpenCV_LIBS} )

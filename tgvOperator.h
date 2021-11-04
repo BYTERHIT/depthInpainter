@@ -5,22 +5,39 @@
 #ifndef DEPTHINPAINTER_TGVOPERATOR_H
 #define DEPTHINPAINTER_TGVOPERATOR_H
 #include <opencv2/opencv.hpp>
+#include "mat_vector.h"
+#define d_u_w
+#define USING_L2
 
 typedef struct {
     int idx;//addresss offset
     //grad normerlized grad [dy*dy,-dx*dy,-dy*dx,dx*dx]
     double tGradProjMtx[2][2];//切线方向的投影矩阵
 } EDGE_GRAD;
-//cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth);
-cv::Mat tgv_alg2(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
 
-//deprecate
-cv::Mat tgv_alg3(std::vector<EDGE_GRAD> edgeGrad,cv::Mat depth);
-cv::Mat tgv_alg1(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth,double lambda_tv, int n_it, double delta, double L);
-cv::Mat tgv_algPrecondition(std::vector<EDGE_GRAD> edgeGrad, cv::Mat depth, double lambda_tv, int n_it);
-class tgvOperator {
+typedef struct {
+    cv::Mat norm;
+    double min;
+    double max;
+} MAX_MIN_NORM;
 
-};
+mat_vector GetWSteps(int rows, int cols);
+mat_vector GetUstepsUsingMat(std::vector<EDGE_GRAD> edgeGrad, int rows, int cols);
+mat_vector GetSteps(std::vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha);
+double GetEnerge(cv::Mat u,cv::Mat g, mat_vector w, std::vector<EDGE_GRAD> edgeGrad, double lambda = 1., double alpha_u = 1.0, double alpha_w=2.0);
+double GetEnerge(cv::Mat u,cv::Mat g, mat_vector w, mat_vector edgeGrad, double lambda, double alpha_u, double alpha_w);
+cv::Mat G_OPERATOR(cv::Mat g, cv::Mat uBar,double to, double lambda);
+cv::Mat G_OPERATOR(cv::Mat g, cv::Mat uBar, cv::Mat to, double lambda, double thresh);
+mat_vector F_STAR_OPERATOR(mat_vector pBar, double alpha);
+mat_vector D_OPERATOR(std::vector<EDGE_GRAD> edgeGrad, mat_vector du);
+mat_vector D_OPERATOR(mat_vector edgeGrad, mat_vector du);
+mat_vector second_order_divergence(mat_vector second_order_derivative);
+mat_vector symmetrizedSecondDerivative(mat_vector grad);
+cv::Mat divergence(mat_vector grad );
+mat_vector  derivativeForward(cv::Mat input);
+mat_vector  GetDGradMtx(cv::Mat grayImg, double gama, double beta);
+mat_vector GetTensor(cv::Mat spMap, cv::Mat grayImg);
+MAX_MIN_NORM MaxMinNormalizeNoZero(cv::Mat input);
 
 
 #endif //DEPTHINPAINTER_TGVOPERATOR_H
