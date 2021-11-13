@@ -313,12 +313,13 @@ Mat G_OPERATOR(Mat g, Mat uBar,double to, double lambda)
 
 double GetEnerge(Mat u,Mat g, mat_vector w, mat_vector edgeGrad, double lambda, double alpha_u, double alpha_w)
 {
-    double minDep = 0, maxDep = 10;
-    minMaxLoc(g,&minDep,&maxDep);
-    Mat offset = u - g;
-    Mat mask;
-    threshold(g,mask,DBL_EPSILON + minDep,1.,THRESH_BINARY);
-    Mat fidelityMat = offset.mul(offset).mul(mask);
+    double tgv = GetTgvCost(u,w,edgeGrad,alpha_u,alpha_w);
+    double fidelity = GetFidelityCost(g,u,lambda);
+    double energe = fidelity + tgv;//tgv;
+    return energe;
+}
+double GetTgvCost(Mat u, mat_vector w, mat_vector edgeGrad, double alpha_u, double alpha_w)
+{
     mat_vector div = derivativeForward(u);
 #ifndef d_u_w
     mat_vector divD = D_OPERATOR(edgeGrad,div) - w;
@@ -332,11 +333,27 @@ double GetEnerge(Mat u,Mat g, mat_vector w, mat_vector edgeGrad, double lambda, 
 #else
     double tgv = alpha_u*divD.norm2() + alpha_w*dif2.norm2();
 #endif
-    double energe = 0.5*lambda*sum(fidelityMat)[0] + tgv;//tgv;
-    return energe;
+    return tgv;
 }
 
-double GetEnerge(Mat u,Mat g, mat_vector w, vector<EDGE_GRAD> edgeGrad, double lambda, double alpha_u, double alpha_w)
+double GetTgvCost(Mat u, mat_vector w, vector<EDGE_GRAD> edgeGrad, double alpha_u, double alpha_w)
+{
+    mat_vector div = derivativeForward(u);
+#ifndef d_u_w
+    mat_vector divD = D_OPERATOR(edgeGrad,div) - w;
+#else
+    mat_vector divD = D_OPERATOR(edgeGrad,div - w);
+#endif
+    mat_vector dif2 = symmetrizedSecondDerivative(w);
+    double tv = div.norm1();
+#ifdef USING_L1
+    double tgv = alpha_u*divD.norm1() + alpha_w*dif2.norm1();
+#else
+    double tgv = alpha_u*divD.norm2() + alpha_w*dif2.norm2();
+#endif
+    return tgv;
+}
+double GetFidelityCost(Mat g, Mat u, double lambda)
 {
     double minDep = 0, maxDep = 10;
     minMaxLoc(g,&minDep,&maxDep);
@@ -344,20 +361,14 @@ double GetEnerge(Mat u,Mat g, mat_vector w, vector<EDGE_GRAD> edgeGrad, double l
     Mat mask;
     threshold(g,mask,DBL_EPSILON + minDep,1.,THRESH_BINARY);
     Mat fidelityMat = offset.mul(offset).mul(mask);
-    mat_vector div = derivativeForward(u);
-#ifndef d_u_w
-    mat_vector divD = D_OPERATOR(edgeGrad,div) - w;
-#else
-    mat_vector divD = D_OPERATOR(edgeGrad,div - w);
-#endif
-    mat_vector dif2 = symmetrizedSecondDerivative(w);
-    double tv = div.norm1();
-#ifdef USING_L1
-    double tgv = alpha_u*divD.norm1() + alpha_w*dif2.norm1();
-#else
-    double tgv = alpha_u*divD.norm2() + alpha_w*dif2.norm2();
-#endif
-    double energe = 0.5*lambda*sum(fidelityMat)[0] + tgv;//tgv;
+    double energe = 0.5*lambda*sum(fidelityMat)[0];
+    return energe;
+}
+double GetEnerge(Mat u,Mat g, mat_vector w, vector<EDGE_GRAD> edgeGrad, double lambda, double alpha_u, double alpha_w)
+{
+    double tgv = GetTgvCost(u,w,edgeGrad,alpha_u,alpha_w);
+    double fidelity = GetFidelityCost(g,u,lambda);
+    double energe = fidelity + tgv;//tgv;
     return energe;
 }
 
@@ -407,8 +418,15 @@ Point GetCoor(int idx ,int rows, int cols)
  *                                           |       .   |
  *                                           |          0|
  *  对于D_EDGE，D=[A11,A12;A21,A22]
+ *  K:
+ *  {alpha_u*D_edge*[dx,      -I,               0;
+ *                   dy,       0,              -I]
+ *                   0,    alpha_w*dx,          0;
+ *                   0,    alpha_w/2*dy,  alpha_w/2*dx;
+ *                   0,    alpha_w/2*dy,  alpha_w/2*dx;
+ *                   0,        0,            alpha_w*dy}
  * */
-mat_vector GetSteps(vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha = 1.)
+mat_vector GetSteps(mat_vector edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha = 1.)
 {
     int size = rows * cols;
     SparseMatrix<double> firstTwoRowOfBlocks(2*size,3*size);
@@ -453,26 +471,14 @@ mat_vector GetSteps(vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha
     vector<Triplet<double>> nonZerosDedge;
     if (!edgeGrad.empty())
     {
-        auto iter = edgeGrad.begin();
-        int idx = iter->idx;
+        double *edgeXXptr = (double*)edgeGrad[0].data;
+        double *edgeYYptr = (double*)edgeGrad[1].data;
+        double *edgeXYptr = (double*)edgeGrad[2].data;
         for (int j = 0; j < size; j++) {
-            if (j != idx)
-            {
-                nonZerosDedge.emplace_back(j, j, 1.);//xx
-                nonZerosDedge.emplace_back(j + size, j + size, 1.);//yy
-            }
-            else
-            {
-                nonZerosDedge.emplace_back(j, j, iter->tGradProjMtx[0][0]);//xx
-                nonZerosDedge.emplace_back(j, j + size, iter->tGradProjMtx[0][1]);//xy
-                nonZerosDedge.emplace_back(j + size, j, iter->tGradProjMtx[1][0]);//yx
-                nonZerosDedge.emplace_back(j + size, j + size, iter->tGradProjMtx[1][1]);//yy
-                if (iter < edgeGrad.end() - 1)
-                {
-                    iter++;
-                    idx = iter->idx;
-                }
-            }
+            nonZerosDedge.emplace_back(j, j, *(edgeXXptr+j));//xx
+            nonZerosDedge.emplace_back(j, j + size, *(edgeXYptr+j));//xy
+            nonZerosDedge.emplace_back(j + size, j, *(edgeXYptr+j));//yx
+            nonZerosDedge.emplace_back(j + size, j + size, *(edgeYYptr+j));//yy
         }
     }
     else
@@ -485,7 +491,8 @@ mat_vector GetSteps(vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha
     
     D_edge.setFromTriplets(nonZerosDedge.begin(),nonZerosDedge.end());
 
-    firstTwoRowOfBlocks = alpha_u * D_edge * firstTwoRowOfBlocks;
+    firstTwoRowOfBlocks =  D_edge * firstTwoRowOfBlocks;
+    firstTwoRowOfBlocks *= alpha_u;
     vector<Triplet<double>> nonZerosK;
     for (int k=0; k<firstTwoRowOfBlocks.outerSize(); ++k) {
         for (SparseMatrix<double>::InnerIterator it(firstTwoRowOfBlocks, k); it; ++it) {
@@ -743,8 +750,9 @@ mat_vector  GetDGradMtx(Mat grayImg, double gama, double beta)
     Mat gradY;
     Mat G_x = (Mat_<double>(3,3)<<1,0,-1,2,0,-2,1,0,-1);
     Mat G_y = G_x.t();
-    filter2D(grayImg,gradX,CV_64FC1,G_x,Point(-1,-1),0,BORDER_REPLICATE);
-    filter2D(grayImg,gradY,CV_64FC1,G_y,Point(-1,-1),0,BORDER_REPLICATE);
+    img.convertTo(img, CV_64FC1,1./255);
+    filter2D(img,gradX,CV_64FC1,G_x,Point(-1,-1),0,BORDER_REPLICATE);
+    filter2D(img,gradY,CV_64FC1,G_y,Point(-1,-1),0,BORDER_REPLICATE);
     Mat gradNormL2 = gradX.mul(gradX) + gradY.mul(gradY);
     sqrt(gradNormL2,gradNormL2);
 
@@ -791,6 +799,7 @@ mat_vector  GetDGradMtx(Mat grayImg, double gama, double beta)
     ret.addItem(a);ret.addItem(b);ret.addItem(c);
     return ret;
 }
+//xx,yy,-xy
 mat_vector GetTensor(Mat spMap, Mat grayImg)
 {
     Mat img = grayImg.clone();

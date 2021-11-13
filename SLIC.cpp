@@ -566,7 +566,7 @@ void SLIC::DrawSuperPixelUsingMat(Mat img) {
                 int y = i + step4nbr[k][0];
                 int x = j + step4nbr[k][1];
                 if (y >= 0 && y < img.rows && x >= 0 && x < img.cols
-                    && _segResult.at<uchar>(i,j) != _segResult.at<uchar>(y,x)) {
+                    && _segResult.at<_int16>(i,j) != _segResult.at<_int16>(y,x)) {
                     isEdge = true;
                     break;
                 }

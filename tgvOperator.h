@@ -23,7 +23,10 @@ typedef struct {
 
 mat_vector GetWSteps(int rows, int cols);
 mat_vector GetUstepsUsingMat(std::vector<EDGE_GRAD> edgeGrad, int rows, int cols);
-mat_vector GetSteps(std::vector<EDGE_GRAD> edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha);
+mat_vector GetSteps(mat_vector edgeGrad, int rows, int cols, double alpha_u, double alpha_w, double alpha);
+double GetFidelityCost(cv::Mat g, cv::Mat u, double lambda);
+double GetTgvCost(cv::Mat u, mat_vector w, mat_vector edgeGrad, double alpha_u, double alpha_w);
+double GetTgvCost(cv::Mat u, mat_vector w, std::vector<EDGE_GRAD> edgeGrad, double alpha_u, double alpha_w);
 double GetEnerge(cv::Mat u,cv::Mat g, mat_vector w, std::vector<EDGE_GRAD> edgeGrad, double lambda = 1., double alpha_u = 1.0, double alpha_w=2.0);
 double GetEnerge(cv::Mat u,cv::Mat g, mat_vector w, mat_vector edgeGrad, double lambda, double alpha_u, double alpha_w);
 cv::Mat G_OPERATOR(cv::Mat g, cv::Mat uBar,double to, double lambda);
@@ -35,7 +38,7 @@ mat_vector second_order_divergence(mat_vector second_order_derivative);
 mat_vector symmetrizedSecondDerivative(mat_vector grad);
 cv::Mat divergence(mat_vector grad );
 mat_vector  derivativeForward(cv::Mat input);
-mat_vector  GetDGradMtx(cv::Mat grayImg, double gama, double beta);
+mat_vector  GetDGradMtx(cv::Mat grayImg, double gama = 0.75 , double beta = 10.);
 mat_vector GetTensor(cv::Mat spMap, cv::Mat grayImg);
 MAX_MIN_NORM MaxMinNormalizeNoZero(cv::Mat input);
 

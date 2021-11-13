@@ -106,7 +106,8 @@ public:
         {
             tmp += cv::abs(*iter);
         }
-        return cv::sum(tmp)[0];
+        double ret = cv::sum(tmp)[0];
+        return ret;
     }
     double norm2()
     {
@@ -116,7 +117,8 @@ public:
             tmp += iter->mul(*iter);
         }
         cv::sqrt(tmp,tmp);
-        return cv::sum(tmp)[0];
+        double ret = cv::sum(tmp)[0];
+        return ret;
     }
     int width = 0, height = 0, dtype=0;
 };

@@ -73,6 +73,8 @@ using namespace std;
 vector<EDGE_GRAD> GetSpEdge(Mat spMap, Mat grayImg)
 {
     vector<EDGE_GRAD> edgeGradVec;
+    if(spMap.empty())
+        return edgeGradVec;
     Mat img = grayImg.clone();
     Mat G_x = (Mat_<double>(3,3)<<1,0,-1,2,0,-2,1,0,-1);
     Mat G_y = G_x.t();
@@ -144,8 +146,10 @@ vector<EDGE_GRAD> GetSpEdge(Mat spMap, Mat grayImg)
 //
 //}
 //thx to Robust_Recovery_of_Heavily_Degraded_Depth_Measurements
-Mat Inpaint(Mat segImg,Mat dep,Mat rgbImg, double lambda, int iterTimes, METHOD_INPAINT method)
+Mat Inpaint(Mat segImg, Mat depInit, Mat dep,Mat rgbImg,TGV_PARAM param, METHOD_INPAINT method)
 {
+    double lambda = param.lambda, alpha_u = param.alpha_u,
+    alpha_w = param.alpha_w, iterTimes= param.iterTimes;
     Mat grayImg;
     cvtColor(rgbImg, grayImg, COLOR_BGR2GRAY);
     int type = dep.type();
@@ -164,8 +168,13 @@ Mat Inpaint(Mat segImg,Mat dep,Mat rgbImg, double lambda, int iterTimes, METHOD_
             depInpaint = tgv_alg2(edgeGradV, depIn, iterTimes, lambda, 24);
             break;
         case ALG_PRECONDITION:
-            depInpaint = tgv_algTGVL2(segImg,grayImg,depIn,0.0625,10000);
-//            depInpaint = tgv_algPrecondition(edgeGradV, depIn, lambda, iterTimes);
+            depInpaint = tgv_algPrecondition(segImg,grayImg, depIn, depInit, param);
+            break;
+        case ALG_TGVL2:
+            depInpaint = tgv_algTGVL2(segImg,grayImg,depIn, depInit, param);
+            break;
+        case ALG_TGVCOLORIZE:
+            depInpaint = tgv_colorizeFTGVL2(segImg, rgbImg,depIn, depInit, param);
             break;
         default:
             break;

@@ -15,5 +15,5 @@ add_executable(depthInpainter main.cpp
         GDBSCAN.cpp
         GDBSCAN.h
         RubustInpainter.cpp
-        tgvAlgrothm.cpp)
+        tgvAlgrothm.cpp colorize.cpp colorize.h SparseOptimizer.cpp SparseOptimizer.h utility.cpp utility.h)
 target_link_libraries(depthInpainter ${OpenCV_LIBS} )
