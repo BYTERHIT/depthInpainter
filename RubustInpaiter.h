@@ -17,4 +17,4 @@ enum METHOD_INPAINT{
 };
 
 
-cv::Mat Inpaint(cv::Mat segImg,cv::Mat depInit, cv::Mat dep, cv::Mat rgbImg,TGV_PARAM param, METHOD_INPAINT method);
+cv::Mat Inpaint(cv::Mat segImg,cv::Mat depInit, cv::Mat dep, cv::Mat rgbImg, cv::Mat confMap, TGV_PARAM param, METHOD_INPAINT method);

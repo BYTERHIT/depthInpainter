@@ -7,6 +7,7 @@ if (NOT OpenCV_FOUND)
     message(FATAL_ERROR "opencv Not Found!")
 endif (NOT OpenCV_FOUND)
 include_directories(${OpenCV_INCLUDE_DIRS})
+
 add_executable(depthInpainter main.cpp
         tgvOperator.cpp
         mat_vector.h
@@ -15,5 +16,7 @@ add_executable(depthInpainter main.cpp
         GDBSCAN.cpp
         GDBSCAN.h
         RubustInpainter.cpp
-        tgvAlgrothm.cpp colorize.cpp colorize.h SparseOptimizer.cpp SparseOptimizer.h utility.cpp utility.h)
-target_link_libraries(depthInpainter ${OpenCV_LIBS} )
+        ImgSeg.cpp
+        tgvAlgrothm.cpp colorize.cpp colorize.h SparseOptimizer.cpp SparseOptimizer.h utility.cpp utility.h outlinerRemove.cpp outlinerRemove.h)
+target_link_libraries(depthInpainter ${OpenCV_LIBS}
+        )

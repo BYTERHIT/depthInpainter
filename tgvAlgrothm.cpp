@@ -62,7 +62,11 @@ Mat tgv_colorizeFiedility(Mat spImg, Mat rgb, Mat depth, Mat depthInit, TGV_PARA
 
     for (int i = 0; i < loopTimes; i++)
     {
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + sigma / eta_p * alpha_u * (D_OPERATOR(tensor,u_bar_grad) - wBar), 1.);
@@ -71,18 +75,32 @@ Mat tgv_colorizeFiedility(Mat spImg, Mat rgb, Mat depth, Mat depthInit, TGV_PARA
         p = p + alpha_u * sigma_p * uBarGradMinusWBar;
         p = F_STAR_OPERATOR(p, 1.);
 #endif
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
 
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
         q = F_STAR_OPERATOR(q + sigma_q * alpha_w * w_bar_second_derivative, 1.);
 
         uBar = u.clone();
         wBar = w.clone();
 
-        Mat p_div = divergence(p);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(p);
+#else
+        Mat p_div = divergenceForward(p);
+#endif
+
         u = spOp.GetNewDepth(uBar + alpha_u * p_div * to_u);
 //        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), tau * to_u, lambda, 0.);
 
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
+
         //此处和文献不一样p old?
 #ifndef d_u_w
         w = wBar + (p*alpha_u + alpha_w * q_second_div).mul(tau * to_w);
@@ -130,7 +148,7 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
     Mat grayImg;
     cvtColor(rgb,grayImg,COLOR_BGR2GRAY);
 
-    double tau = 1.,sigma = 1./tau;
+    double tau = 0.1,sigma = 1./tau;
     double eta_p = 3.;
     double eta_q = 2.;
     double eta_r = 9.;
@@ -154,10 +172,10 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
     SparseMatrix<double> A_t = A.transpose();
 
     for (int k=0; k<A.outerSize(); ++k) {
-        for (SparseMatrix<double>::InnerIterator it(A, k); it; ++it) {
-            double Kij = abs(it.value()); // 元素值
-            int i = it.row();   // 行标row index
-            int j = it.col();   // 列标（此处等于k）
+        for (SparseMatrix<double>::InnerIterator iter(A, k); iter; ++iter) {
+            double Kij = abs(iter.value()); // 元素值
+            int i = iter.row();   // 行标row index
+            int j = iter.col();   // 列标（此处等于k）
             double *toPtr = (double *)to_u.data;
             *(toPtr + j) += pow(Kij,2-0.);
         }
@@ -202,15 +220,19 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
 
     for (int i = 0; i < loopTimes; i++)
     {
-        if(sigma < 1000)
-        {
-            theta_n = 1 / sqrt(1 + 0.7 * tau);
-        }
-        else
-        {
-            theta_n = 1;
-        }
+//        if(sigma < 1000)
+//        {
+//            theta_n = 1 / sqrt(1 + 0.7 * tau);
+//        }
+//        else
+//        {
+//            theta_n = 1;
+//        }
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + sigma / eta_p * alpha_u * (D_OPERATOR(tensor,u_bar_grad) - wBar), 1.);
@@ -221,7 +243,11 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
         p = F_STAR_OPERATOR(p, alpha_u);
 #endif
 
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
         q = F_STAR_OPERATOR(q + sigma / eta_q * w_bar_second_derivative, alpha_w);
 
         Mat tmp = r + sigma /eta_r *(MatMulSp(A,uBar) - u0);
@@ -232,12 +258,20 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
 
 //        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
         mat_vector dp = D_OPERATOR(tensor, p);
-        Mat p_div = divergence(dp);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
+
         Mat AtR = MatMulSp(A_t,r);
         u = uBar + (p_div - AtR).mul(tau*to_u);
 //        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), tau * to_u, lambda, 0.);
-
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
         //此处和文献不一样p old?
 #ifndef d_u_w
         w = wBar + (p + q_second_div).mul(tau * to_w);
@@ -247,8 +281,8 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
 
         uBar = u + (u - uBar) * theta_n;
         wBar = w + (w - wBar) * theta_n;
-        sigma = sigma / theta_n;
-        tau = tau * theta_n;
+//        sigma = sigma / theta_n;
+//        tau = tau * theta_n;
 
 
         if(i%10==0)
@@ -272,6 +306,8 @@ Mat tgv_colorizeFTGVL2(Mat spImg, Mat rgb, Mat depth,Mat depthInit, TGV_PARAM pa
     return u;
 
 }
+
+
 Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARAM param)
 {
     MAX_MIN_NORM mmNorm = MaxMinNormalizeNoZero(dep);
@@ -286,7 +322,7 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
     double theta_n = 1 ;
     double alpha_u = param.alpha_u, alpha_w = param.alpha_w;
 
-    double tau = 1.,sigma = 1./tau;
+    double tau = 1,sigma = 1./tau;
     mat_vector tensor;
     Mat grayImg;
     cvtColor(rgb,grayImg,COLOR_BGR2GRAY);
@@ -297,8 +333,9 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
 
 
     //初始化步长值 通过precontion算法实现
-    double alpha_precondition = 1.;
-    mat_vector steps = GetSteps(tensor,depth.rows, depth.cols,1.,1.,alpha_precondition);
+    double alpha_precondition = 2.;
+    double alpha_c = 0.5;
+    mat_vector steps = GetSteps(tensor,depth.rows, depth.cols, alpha_u,alpha_w,alpha_precondition);
     Mat to_u = steps[0];
     mat_vector to_w(2);
     copy(steps.begin()+1,steps.begin()+3,to_w.begin());
@@ -307,22 +344,22 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
     mat_vector sigma_q(4);
     copy(steps.begin()+5,steps.end(),sigma_q.begin());
 
-    SYS_SPMTX sysSpmtx = GetSysSpMtx(rgb,Mat(),depth,1.,1.);
-    SparseMatrix<double> A = sysSpmtx.A;
+    SYS_SPMTX sysSpmtx = GetSysSpMtx(rgb,Mat(),depth,alpha_c,1.);
+    SparseMatrix<double> A =  1/sqrt(param.lambda)*sysSpmtx.A;
     SparseMatrix<double> A_t = A.transpose();
     Mat sigma_r = Mat::zeros(to_u.rows,to_u.cols,to_u.type());
     Mat to_u_inv;
     Mat one = Mat::ones(sigma_r.rows, sigma_r.cols, sigma_r.type());
     divide(one,to_u,to_u_inv);
+    double *toPtr = (double *)to_u_inv.data;
+    double *sigmaPtr = (double *)sigma_r.data;
 
     for (int k=0; k<A.outerSize(); ++k) {
         for (SparseMatrix<double>::InnerIterator it(A, k); it; ++it) {
             double Kij = abs(it.value()); // 元素值
             int i = it.row();   // 行标row index
             int j = it.col();   // 列标（此处等于k）
-            double *toPtr = (double *)to_u_inv.data;
             *(toPtr + j) += pow(Kij,2-alpha_precondition);
-            double *sigmaPtr = (double *)sigma_r.data;
             *(sigmaPtr + i) += pow(Kij,alpha_precondition);
         }
     }
@@ -348,8 +385,9 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
     imshow("u0", u0);
     namedWindow("depinit");
     imshow("depinit", depInit);
+    Mat f0 = sigma_r.mul(alpha_c/sqrt(param.lambda)*u0);
     double tol = param.tol;
-    Mat Den = 1 + param.lambda * sigma_r;
+    Mat Den = 1 + sigma_r;
 
     if(tol >0 )
     {
@@ -357,25 +395,35 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
     }
     for (int i = 0; i < loopTimes; i++)
     {
-        if(sigma < 1000)
-        {
-            theta_n = 1 / sqrt(1 + 0.7 * tau);
-        }
-        else
-        {
-            theta_n = 1;
-        }
+//        if(sigma < 1000)
+//        {
+//            theta_n = 1 / sqrt(1 + 0.7 * tau);
+//        }
+//        else
+//        {
+//            theta_n = 1;
+//        }
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + (D_OPERATOR(tensor,u_bar_grad) - wBar).mul(sigma_p*sigma), alpha_u);
 #else
-        p = F_STAR_OPERATOR(p + D_OPERATOR(tensor,u_bar_grad - wBar).mul(sigma*sigma_p), alpha_u);
+        p = F_STAR_OPERATOR(p + D_OPERATOR(tensor,u_bar_grad - wBar).mul(alpha_u*sigma*sigma_p), 1.);
 #endif
 
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
-        q = F_STAR_OPERATOR(q + w_bar_second_derivative.mul(sigma*sigma_q), alpha_w);
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
 
-        Mat tmp = r + sigma * sigma_r.mul(MatMulSp(A,uBar) - u0);
+        q = F_STAR_OPERATOR(q + w_bar_second_derivative.mul(alpha_w*sigma*sigma_q), 1.);
+
+
+        Mat tmp = r + sigma * sigma_r.mul(MatMulSp(A,uBar)) - sigma*f0;
         divide(tmp,Den,r);
 
 
@@ -384,23 +432,33 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
 
 //        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
         mat_vector dp = D_OPERATOR(tensor, p);
-        Mat p_div = divergence(dp);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
+
         Mat AtR = MatMulSp(A_t,r);
-        u = uBar + (p_div-AtR).mul(tau*to_u);
+
+        u = uBar + (alpha_u*p_div-AtR).mul(tau*to_u);
 //        u = G_OPERATOR(u0, uBar + p_div.mul(tau*to_u), to_u*tau, lambda, 0.);
 
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
         //此处和文献不一样p old?
 #ifndef d_u_w
         w = wBar + (p*alpha_u + alpha_w * q_second_div).mul(to_w*tau);
 #else
-        w = wBar + (dp+ q_second_div).mul(tau*to_w);
+        w = wBar + (alpha_u*dp+ alpha_w*q_second_div).mul(tau*to_w);
 #endif
 
         uBar = u + (u - uBar) * theta_n;
         wBar = w + (w - wBar) * theta_n;
-        sigma = sigma / theta_n;
-        tau = tau * theta_n;
+//        sigma = sigma / theta_n;
+//        tau = tau * theta_n;
         if(i%10==0)
         {
             double tol_ =  sum(abs(u-u_old))[0];
@@ -414,6 +472,9 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
         }
         u_old = u.clone();
     }
+    Mat imgSave;
+    u.convertTo(imgSave,CV_8UC1,255.);
+    imwrite("colorizeFPrecodition.png",imgSave);
     double scale = 1./scaleDep;
     u = (u)*scale + minDep;
     return u;
@@ -425,7 +486,7 @@ Mat tgv_colorizeFPrecontion(Mat spImg, Mat rgb, Mat dep, Mat depthInit, TGV_PARA
  *     and Horst Bischof, Image Guided Depth Upsampling using Anisotropic
  *     Total Generalized Variation, ICCV 2013.
  */
-Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM param) {
+Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, Mat confidenceMap, TGV_PARAM param) {
     MAX_MIN_NORM mmNorm = MaxMinNormalizeNoZero(depth);
     double minDep = mmNorm.min, maxDep = mmNorm.max;
     double scaleDep = 1. / (maxDep - minDep);
@@ -434,11 +495,24 @@ Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM para
     threshold(depInit, depInit, 0,0,THRESH_TOZERO);
     threshold(depInit, depInit, 1,1,THRESH_TRUNC);
 
+    double maxConf =0, minConf = 0;
+    Mat confMap;
+    if(!confidenceMap.empty())
+    {
+        minMaxLoc(confidenceMap,&minConf,&maxConf);
+        confMap = (confidenceMap - minConf)/(maxConf - minConf);
+    }
+    else
+    {
+        threshold(depthInit, confMap, DBL_EPSILON,1,THRESH_BINARY);
+    }
+    confMap.convertTo(confMap,CV_64FC1);
+
     double theta_n = 1 ;
 //    double alpha_u = 1., alpha_w = 2.;
     double alpha_u = param.alpha_u, alpha_w = param.alpha_w;
 
-    double tau = 1.,sigma = 1./tau;
+    double tau = 1,sigma = 1./tau;
     double eta_p = 3.;
     double eta_q = 2.;
     //初始化步长值 通过precontion算法实现
@@ -490,18 +564,23 @@ Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM para
     imshow("depinit", depInit);
 
 
+    double gama = 1.;
     for (int i = 0; i < loopTimes; i++)
     {
-        if(sigma < 1000)
-        {
-            theta_n = 1 / sqrt(1 + 0.7 * tau);
-        }
-        else
-        {
-            theta_n = 1;
-        }
+//        if(sigma < 1000)
+//        {
+//            theta_n = 1 / sqrt(1 + gama * tau);
+//        }
+//        else
+//        {
+//            theta_n = 1;
+//        }
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
-        
+#endif
+
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + sigma / eta_p * alpha_u * (D_OPERATOR(tensor,u_bar_grad) - wBar), 1.);
 #else
@@ -510,8 +589,12 @@ Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM para
         p = p + alpha_u * sigma / eta_p * du_tensor;
         p = F_STAR_OPERATOR(p, 1.);
 #endif
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
 
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
         q = F_STAR_OPERATOR(q + sigma / eta_q * alpha_w * w_bar_second_derivative, 1.);
 
         uBar = u.clone();
@@ -519,10 +602,18 @@ Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM para
 
 //        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
         mat_vector dp = D_OPERATOR(tensor, p);
-        Mat p_div = divergence(dp);
-        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), tau * to_u, lambda, 0.);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
+        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), tau * to_u, lambda*confMap, 0.);
 
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
         //此处和文献不一样p old?
 #ifndef d_u_w
         w = wBar + (p*alpha_u + alpha_w * q_second_div).mul(tau * to_w);
@@ -532,8 +623,8 @@ Mat tgv_algTGVL2(Mat spImg, Mat grayImg, Mat depth,Mat depthInit, TGV_PARAM para
 
         uBar = u + (u - uBar) * theta_n;
         wBar = w + (w - wBar) * theta_n;
-        sigma = sigma / theta_n;
-        tau = tau * theta_n;
+//        sigma = sigma / theta_n;
+//        tau = tau * theta_n;
 
 
         if(i%10==0)
@@ -572,12 +663,12 @@ Mat tgv_algPrecondition(Mat spImg, Mat grayImg, Mat dep,Mat depthInit, TGV_PARAM
     double theta_n = 1 ;
     double alpha_u = param.alpha_u, alpha_w = param.alpha_w;
 
-    double tau = 1.,sigma = 1./tau;
+    double tau = 0.25,sigma = 1./tau;
     mat_vector tensor;
     if(spImg.empty())
         tensor = GetDGradMtx(grayImg,param.gama,param.beta);
     else
-        tensor = GetTensor(spImg,grayImg);
+        tensor = GetTensor(spImg,grayImg,depth*255.);
     //初始化步长值 通过precontion算法实现
     mat_vector steps = GetSteps(tensor,depth.rows, depth.cols,alpha_u,alpha_w,1.);
     Mat to_u = steps[0];
@@ -614,32 +705,47 @@ Mat tgv_algPrecondition(Mat spImg, Mat grayImg, Mat dep,Mat depthInit, TGV_PARAM
     }
     for (int i = 0; i < loopTimes; i++)
     {
-        if(sigma < 1000)
-        {
-            theta_n = 1 / sqrt(1 + 0.7 * tau);
-        }
-        else
-        {
-            theta_n = 1;
-        }
+//        if(sigma < 3)
+//        {
+//            theta_n = 1 / sqrt(1 + 0.7 * tau);
+//        }
+//        else
+//        {
+//            theta_n = 1;
+//        }
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + alpha_u * (D_OPERATOR(tensor,u_bar_grad) - wBar).mul(sigma_p*sigma), 1.);
 #else
         p = F_STAR_OPERATOR(p + alpha_u * D_OPERATOR(tensor,u_bar_grad - wBar).mul(sigma*sigma_p), 1.);
 #endif
-
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
         q = F_STAR_OPERATOR(q + alpha_w * w_bar_second_derivative.mul(sigma*sigma_q), 1.);
 
         uBar = u.clone();
         wBar = w.clone();
 //        mat_vector dp = p;// D_OPERATOR(edgeGrad, p);
         mat_vector dp = D_OPERATOR(tensor, p);
-        Mat p_div = divergence(dp);
-        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), to_u*tau, lambda, 0.);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
 
-        mat_vector q_second_div = second_order_divergence(q);
+        u = G_OPERATOR(u0, uBar + alpha_u * p_div.mul(tau*to_u), to_u*tau, lambda, 0.);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
         //此处和文献不一样p old?
 #ifndef d_u_w
         w = wBar + (p*alpha_u + alpha_w * q_second_div).mul(to_w*tau);
@@ -649,8 +755,8 @@ Mat tgv_algPrecondition(Mat spImg, Mat grayImg, Mat dep,Mat depthInit, TGV_PARAM
 
         uBar = u + (u - uBar) * theta_n;
         wBar = w + (w - wBar) * theta_n;
-        sigma = sigma / theta_n;
-        tau = tau * theta_n;
+//        sigma = sigma / theta_n;
+//        tau = tau * theta_n;
         if(i%10==0)
         {
             double tol_ =  sum(abs(u-u_old))[0];
@@ -658,7 +764,7 @@ Mat tgv_algPrecondition(Mat spImg, Mat grayImg, Mat dep,Mat depthInit, TGV_PARAM
             namedWindow("u");
             imshow("u", u);
             waitKey(10);
-            cout << "iter:" << i << " loss: " << energe << " tol: "<<tol_ << endl;
+            cout << "iter:" << i << " loss: " << energe << " tol: "<<tol_ <<" tau:"<<tau<<" sigma: "<<sigma<<" theta: "<<theta_n<< endl;
             if(tol_ <= param.tol)
                 break;
         }
@@ -697,24 +803,39 @@ Mat tgv_alg2(vector<EDGE_GRAD> edgeGrad,Mat dep, int iterTimes, double lambda_tv
 
     for(int i = 0; i<loopTimes; i++)
     {
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + alpha_u * (D_OPERATOR(edgeGrad, u_bar_grad) - wBar)*(sigma_p), 1.);
 #else
         p = F_STAR_OPERATOR(p + alpha_u * D_OPERATOR(edgeGrad, u_bar_grad - wBar)*(sigma_p), 1.);
 #endif
-
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
         q = F_STAR_OPERATOR(q + alpha_w * w_bar_second_derivative*sigma_q,1.);
 
         Mat u_old = u.clone();
         mat_vector dp = D_OPERATOR(edgeGrad, p);
-        Mat p_div = divergence(dp);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
         u = G_OPERATOR(u0,u + alpha_u * p_div * to_u,to_u,lambda);
         uBar = u + (u-u_old)*theta_u;
 
         mat_vector w_old = w.clone();
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
 
 #ifndef d_u_w
         w = w + (p * alpha_u + alpha_w * q_second_div)*(to_w);
@@ -780,24 +901,40 @@ Mat tgv_alg1(vector<EDGE_GRAD> edgeGrad, Mat dep,double lambda_tv, int n_it, dou
     Mat uGray;
     for (int i = 0; i < loopTimes; i++)
     {
+#ifdef USING_BACKWARD
+        mat_vector u_bar_grad = derivativeBackward(uBar);
+#else
         mat_vector u_bar_grad = derivativeForward(uBar);
+#endif
 #ifndef d_u_w
         p = F_STAR_OPERATOR(p + alpha_u * (D_OPERATOR(edgeGrad,u_bar_grad) - wBar) * sigma_n, 1.);
 #else
         p = F_STAR_OPERATOR(p + alpha_u * D_OPERATOR(edgeGrad,u_bar_grad - wBar) * sigma_n, 1.);
 #endif
 
-        mat_vector w_bar_second_derivative = symmetrizedSecondDerivative(wBar);
+#ifdef USING_BACKWARD
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeBackward(wBar);
+#else
+        mat_vector w_bar_second_derivative = symmetrizedSecondDerivativeForward(wBar);
+#endif
         q = F_STAR_OPERATOR(q + alpha_w * w_bar_second_derivative * sigma_n, 1.);
 
         Mat u_old = u.clone();
         mat_vector dp = D_OPERATOR(edgeGrad, p);
-        Mat p_div = divergence(dp);
+#ifdef USING_BACKWARD
+        Mat p_div = divergenceBackward(dp);
+#else
+        Mat p_div = divergenceForward(dp);
+#endif
         u = G_OPERATOR(u0, u + alpha_u * p_div*to_u, to_u, lambda);
         uBar = u + (u - u_old) * theta_n;
 
         mat_vector w_old = w.clone();
-        mat_vector q_second_div = second_order_divergence(q);
+#ifdef USING_BACKWARD
+        mat_vector q_second_div = secondOrderDivergenceBackward(q);
+#else
+        mat_vector q_second_div = secondOrderDivergenceForward(q);
+#endif
 #ifndef d_u_w
         w = w + (alpha_u * p + q_second_div) * to_w;
 #else
